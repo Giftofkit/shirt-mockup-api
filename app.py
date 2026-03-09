@@ -12,43 +12,77 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 def download_image(url: str):
-    response = requests.get(url)
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
     return Image.open(BytesIO(response.content)).convert("RGBA")
 
 
 @app.route("/generate-mockup", methods=["POST"])
 def generate_mockup():
-    data = request.json
+    try:
+        data = request.get_json()
 
-    shirt_url = data["shirt_image"]
-    logo_url = data["logo_image"]
+        shirt_url = data["shirt_image"]
+        logo_url = data["logo_image"]
 
-    x = int(data["placement"]["x"])
-    y = int(data["placement"]["y"])
-    w = int(data["placement"]["width"])
-    h = int(data["placement"]["height"])
+        placement_x = float(data["placement"]["x"])
+        placement_y = float(data["placement"]["y"])
+        placement_width = float(data["placement"]["width"])
+        placement_height = float(data["placement"]["height"])
 
-    shirt = download_image(shirt_url)
-    logo = download_image(logo_url)
+        shirt = download_image(shirt_url)
+        logo = download_image(logo_url)
 
-    logo.thumbnail((w, h))
+        shirt_width, shirt_height = shirt.size
 
-    paste_x = x + (w - logo.width) // 2
-    paste_y = y + (h - logo.height) // 2
+        # Treat placement values as percentages if they look like % values
+        if (
+            0 <= placement_x <= 100 and
+            0 <= placement_y <= 100 and
+            0 < placement_width <= 100 and
+            0 < placement_height <= 100
+        ):
+            x = int(shirt_width * (placement_x / 100))
+            y = int(shirt_height * (placement_y / 100))
+            w = int(shirt_width * (placement_width / 100))
+            h = int(shirt_height * (placement_height / 100))
+        else:
+            # Otherwise assume pixel values
+            x = int(placement_x)
+            y = int(placement_y)
+            w = int(placement_width)
+            h = int(placement_height)
 
-    shirt.alpha_composite(logo, (paste_x, paste_y))
+        # Add some padding so the logo fits nicely inside the placement box
+        padding = int(min(w, h) * 0.08)
+        padded_w = max(1, w - (padding * 2))
+        padded_h = max(1, h - (padding * 2))
 
-    filename = f"{uuid.uuid4().hex}.png"
-    path = os.path.join(OUTPUT_DIR, filename)
+        logo.thumbnail((padded_w, padded_h))
 
-    shirt.save(path)
+        paste_x = x + (w - logo.width) // 2
+        paste_y = y + (h - logo.height) // 2
 
-    base_url = request.host_url.rstrip("/")
+        shirt.alpha_composite(logo, (paste_x, paste_y))
 
-    return jsonify({
-        "mockup_url": f"{base_url}/static/{filename}"
-    })
+        filename = f"{uuid.uuid4().hex}.png"
+        path = os.path.join(OUTPUT_DIR, filename)
+        shirt.save(path, format="PNG")
+
+        base_url = request.host_url.rstrip("/")
+
+        return jsonify({
+            "success": True,
+            "mockup_url": f"{base_url}/static/{filename}"
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 400
 
 
 if __name__ == "__main__":
-    app.run(port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
