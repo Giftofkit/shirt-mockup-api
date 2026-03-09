@@ -43,8 +43,10 @@ def generate_mockup():
 
     shirt.save(path)
 
+    base_url = request.host_url.rstrip("/")
+
     return jsonify({
-        "mockup_url": f"http://127.0.0.1:10000/static/{filename}"
+        "mockup_url": f"{base_url}/static/{filename}"
     })
 
 
