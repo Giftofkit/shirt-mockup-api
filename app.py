@@ -3,17 +3,10 @@ from PIL import Image
 import requests
 from io import BytesIO
 import os
-import uuid
+import base64
 
 app = Flask(__name__)
 
-OUTPUT_DIR = "static"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-
-# ------------------------------
-# Health routes (for Render wake)
-# ------------------------------
 
 @app.route("/", methods=["GET"])
 def root():
@@ -25,19 +18,11 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
-# ------------------------------
-# Helper: download image
-# ------------------------------
-
 def download_image(url: str):
     response = requests.get(url, timeout=30)
     response.raise_for_status()
     return Image.open(BytesIO(response.content)).convert("RGBA")
 
-
-# ------------------------------
-# Mockup generator endpoint
-# ------------------------------
 
 @app.route("/generate-mockup", methods=["POST"])
 def generate_mockup():
@@ -75,7 +60,7 @@ def generate_mockup():
             w = int(placement_width)
             h = int(placement_height)
 
-        # Add padding so logo isn't flush to edges
+        # Padding so logo doesn't sit flush to the edges
         padding = int(min(w, h) * 0.08)
         padded_w = max(1, w - (padding * 2))
         padded_h = max(1, h - (padding * 2))
@@ -87,16 +72,17 @@ def generate_mockup():
 
         shirt.alpha_composite(logo, (paste_x, paste_y))
 
-        filename = f"{uuid.uuid4().hex}.png"
-        path = os.path.join(OUTPUT_DIR, filename)
+        # Save image into memory instead of /static
+        buffer = BytesIO()
+        shirt.save(buffer, format="PNG")
+        buffer.seek(0)
 
-        shirt.save(path, format="PNG")
-
-        base_url = request.host_url.rstrip("/")
+        image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
 
         return jsonify({
             "success": True,
-            "mockup_url": f"{base_url}/static/{filename}"
+            "imageBase64": image_base64,
+            "mimeType": "image/png"
         })
 
     except Exception as e:
@@ -105,10 +91,6 @@ def generate_mockup():
             "error": str(e)
         }), 400
 
-
-# ------------------------------
-# Run server
-# ------------------------------
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
