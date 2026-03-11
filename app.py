@@ -1,11 +1,14 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from PIL import Image
 import requests
 from io import BytesIO
 import os
-import base64
+import uuid
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="static")
+
+OUTPUT_DIR = "static"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 @app.route("/", methods=["GET"])
@@ -16,6 +19,16 @@ def root():
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok"}), 200
+
+
+@app.route("/ping", methods=["GET"])
+def ping():
+    return jsonify({"status": "awake"}), 200
+
+
+@app.route("/static/<path:filename>")
+def serve_static(filename):
+    return send_from_directory(OUTPUT_DIR, filename)
 
 
 def download_image(url: str):
@@ -60,7 +73,7 @@ def generate_mockup():
             w = int(placement_width)
             h = int(placement_height)
 
-        # Padding so logo doesn't sit flush to the edges
+        # Add padding so logo isn't flush to edges
         padding = int(min(w, h) * 0.08)
         padded_w = max(1, w - (padding * 2))
         padded_h = max(1, h - (padding * 2))
@@ -72,17 +85,15 @@ def generate_mockup():
 
         shirt.alpha_composite(logo, (paste_x, paste_y))
 
-        # Save image into memory instead of /static
-        buffer = BytesIO()
-        shirt.save(buffer, format="PNG")
-        buffer.seek(0)
+        filename = f"{uuid.uuid4().hex}.png"
+        path = os.path.join(OUTPUT_DIR, filename)
+        shirt.save(path, format="PNG")
 
-        image_base64 = base64.b64encode(buffer.read()).decode("utf-8")
+        base_url = request.host_url.rstrip("/")
 
         return jsonify({
             "success": True,
-            "imageBase64": image_base64,
-            "mimeType": "image/png"
+            "mockup_url": f"{base_url}/static/{filename}"
         })
 
     except Exception as e:
